@@ -13,20 +13,17 @@ import torch.nn as nn
 import random
 import os
 
-def get_loader(dataset, tokenizer, batchsize=16, padsize=256, want_label=1):
+def get_loader(dataset, tokenizer, batchsize=16, padsize=256, want_cate="Risk Ignorance"):
 
     batch_inputs, batch_labels = [], []
     
-    inputs1, inputs2, labels_ = [d['context'] for d in dataset], [d['response'] for d in dataset], [d['label'] for d in dataset]
+    inputs1, inputs2, categories, labels_ = [d['context'] for d in dataset], [d['response'] for d in dataset], [d['category'] for d in dataset], [d['label'] for d in dataset]
     labels = []
-    for label in labels_:
-        if label==want_label:
-            labels.append(1)
-        elif label==want_label-1:
-            labels.append(0)
+    for category, label in zip(categories, labels_):
+        if category==want_cate:
+            labels.append(int(label=='Unsafe'))
         else:
             labels.append(2)
-        #labels.append(int(label==want_label))
     for start in tqdm(range(0, len(inputs1), batchsize)):
         tmp_batch = tokenizer(text=inputs1[start:min(start + batchsize, len(inputs1))],
                               text_pair=inputs2[start:min(start + batchsize, len(inputs1))],
@@ -37,15 +34,13 @@ def get_loader(dataset, tokenizer, batchsize=16, padsize=256, want_label=1):
     return batch_inputs, batch_labels
 
 
-def get_loader_resp(dataset, tokenizer, batchsize=16, padsize=256, want_label=1):
+def get_loader_resp(dataset, tokenizer, batchsize=16, padsize=256, want_cate="Risk Ignorance"):
     batch_inputs, batch_labels = [], []
-    inputs1, inputs2, labels_ = [d['context'] for d in dataset], [d['response'] for d in dataset], [d['label'] for d in dataset]
+    inputs1, inputs2, categories, labels_ = [d['context'] for d in dataset], [d['response'] for d in dataset], [d['category'] for d in dataset], [d['label'] for d in dataset]
     labels = []
-    for label in labels_:
-        if label==want_label:
-            labels.append(1)
-        elif label==want_label-1:
-            labels.append(0)
+    for category, label in zip(categories, labels_):
+        if category==want_cate:
+            labels.append(int(label=='Unsafe'))
         else:
             labels.append(2)
     for start in tqdm(range(0, len(inputs2), batchsize)):
@@ -103,21 +98,22 @@ def test_report(model, save_path, batch_inputs, batch_labels, log_file):
     print("Time usage:", time_dif, file=log_file)
 
 parser = argparse.ArgumentParser(description='choose dataset')
-parser.add_argument('dataset', choices=['agreement', 'expertise', 'offend','political','bias','risk'])
+parser.add_argument('--dataset', required=True, choices=['agreement', 'expertise', 'offend','bias','risk'])
 args = parser.parse_args()
 
-with open('diasafety_train.json', 'r') as f:
+with open('../DiaSafety_dataset/train.json', 'r') as f:
     train = json.load(f)
 
-with open('diasafety_val.json', 'r') as f:
+with open('../DiaSafety_dataset/val.json', 'r') as f:
     val = json.load(f)
 
-with open('diasafety_test.json', 'r') as f:
+with open('../DiaSafety_dataset/test.json', 'r') as f:
     test = json.load(f)
 
-label_dict = {'agreement':1, 'expertise':3, 'offend':5, 'political':7, 'bias':9, 'risk':11} # political class is finally deprecated
+label_dict = {'agreement':"Toxicity Agreement", 'expertise':"Unauthorized Expertise", 'offend':"Offending User", 
+'political':"Sensitive Topics", 'bias':"Biased Opinion", 'risk':"Risk Ignorance"} # political class is finally deprecated
 
-want_label = label_dict[args.dataset]
+want_cate = label_dict[args.dataset]
 
 num_labels = 3 # (safe, unsafe, N/A) for a specific category
 
@@ -151,8 +147,8 @@ for batchsize, learning_rate in itertools.product(batchsizes,learning_rates):
     optimizer = AdamW(model.parameters(), lr=learning_rate)
 
     print("getting loader...")
-    val_inputs, val_labels = get_loader(val, tokenizer, batchsize=batchsize, padsize=padsize,want_label=want_label)
-    test_inputs, test_labels = get_loader(test, tokenizer, batchsize=batchsize, padsize=padsize, want_label=want_label)
+    val_inputs, val_labels = get_loader(val, tokenizer, batchsize=batchsize, padsize=padsize,want_cate=want_cate)
+    test_inputs, test_labels = get_loader(test, tokenizer, batchsize=batchsize, padsize=padsize, want_cate=want_cate)
 
 
     model = model.to(device)
@@ -166,7 +162,7 @@ for batchsize, learning_rate in itertools.product(batchsizes,learning_rates):
         start_time = time()
         random.seed(42)
         random.shuffle(train)
-        train_inputs, train_labels = get_loader(train, tokenizer, batchsize=batchsize, padsize=padsize, want_label=want_label)
+        train_inputs, train_labels = get_loader(train, tokenizer, batchsize=batchsize, padsize=padsize, want_cate=want_cate)
         for i, (trains, labels) in enumerate(zip(train_inputs, train_labels)):
             trains, labels = trains.to(device), labels.to(device)
             outputs = model(**trains, labels=labels)
@@ -209,5 +205,5 @@ for batchsize, learning_rate in itertools.product(batchsizes,learning_rates):
         os.mkdir('../logs_{}'.format(args.dataset))
     log_file = open('../logs_{}/log_{}_{}.txt'.format(args.dataset, batchsize, learning_rate),'w')
     print('batchsize: {}\nlearning_rate:{}'.format(batchsize,learning_rate), file=log_file)
-    test_report(model, save_path, test_inputs, test_labels, log_file=log_file)
+    test_report(model, save_path, val_inputs, test_labels, log_file=log_file)
     log_file.close()

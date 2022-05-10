@@ -15,25 +15,24 @@ num_labels = 3
 model = RobertaForSequenceClassification.from_pretrained(path, num_labels = num_labels)
 
 
-def get_loader(dataset, tokenizer, batchsize=16, padsize=128, want_label=1):
-    start = 0
+def get_loader(dataset, tokenizer, batchsize=16, padsize=256, want_cate="Risk Ignorance"):
+    
     batch_inputs, batch_labels = [], []
-    inputs1, inputs2, labels_ = [d['context'] for d in dataset], [d['response'] for d in dataset], [d['label'] for d in dataset]
+    
+    inputs1, inputs2, categories, labels_ = [d['context'] for d in dataset], [d['response'] for d in dataset], [d['category'] for d in dataset], [d['label'] for d in dataset]
     labels = []
-    for label in labels_:
-        if label==want_label:
-            labels.append(1)
-        elif label==want_label-1:
-            labels.append(0)
+    for category, label in zip(categories, labels_):
+        if category==want_cate:
+            labels.append(int(label=='Unsafe'))
         else:
             labels.append(2)
-    while start < len(inputs1):
-        tmp_batch = tokenizer(text=inputs1[start:min(start + batchsize, len(inputs1))], text_pair=inputs2[start:min(start + batchsize, len(inputs1))],
+    for start in tqdm(range(0, len(inputs1), batchsize)):
+        tmp_batch = tokenizer(text=inputs1[start:min(start + batchsize, len(inputs1))],
+                              text_pair=inputs2[start:min(start + batchsize, len(inputs1))],
                               return_tensors="pt", truncation=True, padding='max_length', max_length=padsize)
         batch_inputs.append(tmp_batch)
         tmp_label = torch.LongTensor(labels[start:min(start + batchsize, len(inputs1))])
         batch_labels.append(tmp_label)
-        start += batchsize
     return batch_inputs, batch_labels
 
 def get_loader_for_predict(dataset, tokenizer, batchsize=16, padsize=128):

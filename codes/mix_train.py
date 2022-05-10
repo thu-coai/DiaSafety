@@ -24,16 +24,15 @@ num_epochs = 10
 
 def get_loader(dataset, tokenizer, batchsize=16, padsize=256):
     batch_inputs, batch_labels = [], []
+    label_dict = {"Toxicity Agreement":1, "Unauthorized Expertise":2, "Offending User":3, "Biased Opinion":4, "Risk Ignorance":5}
+    inputs1, inputs2, categories, labels_ = [d['context'] for d in dataset], [d['response'] for d in dataset], [d['category'] for d in dataset], [d['label'] for d in dataset]
     labels = []
-    for d in dataset:
-        if d['label']%2==0:
-            labels.append(0)
+    for category, label in zip(categories, labels_):
+        tmp = label_dict[category]
+        if label=='Unsafe':
+            labels.append(tmp)
         else:
-            tmp = d['label']
-            if tmp>=8: # for deprecating the political class
-                tmp-=2
-            labels.append((tmp+1)//2)
-    inputs1, inputs2 = [d['context'] for d in dataset], [d['response'] for d in dataset]
+            labels.append(0)
     for start in tqdm(range(0, len(inputs1), batchsize)):
         tmp_batch = tokenizer(text=inputs1[start:min(start + batchsize, len(inputs1))],
                               text_pair=inputs2[start:min(start + batchsize, len(inputs1))],
@@ -45,15 +44,15 @@ def get_loader(dataset, tokenizer, batchsize=16, padsize=256):
 
 def get_loader_resp(dataset, tokenizer, batchsize=16, padsize=256, want_label=1):
     batch_inputs, batch_labels = [], []
-    inputs1, inputs2, labels_ = [d['context'] for d in dataset], [d['response'] for d in dataset], [d['label'] for d in dataset]
+    label_dict = {"Toxicity Agreement":1, "Unauthorized Expertise":2, "Offending User":3, "Biased Opinion":4, "Risk Ignorance":5}
+    inputs1, inputs2, categories, labels_ = [d['context'] for d in dataset], [d['response'] for d in dataset], [d['category'] for d in dataset], [d['label'] for d in dataset]
     labels = []
-    for label in labels_:
-        if label==want_label:
-            labels.append(1)
-        elif label==want_label-1:
-            labels.append(0)
+    for category, label in zip(categories, labels_):
+        tmp = label_dict[category]
+        if label=='Unsafe':
+            labels.append(tmp)
         else:
-            labels.append(2)
+            labels.append(0)
     for start in tqdm(range(0, len(inputs2), batchsize)):
         tmp_batch = tokenizer(text=inputs2[start:min(start + batchsize, len(inputs2))],
                               return_tensors="pt", truncation=True, padding='max_length', max_length=padsize)
@@ -109,16 +108,14 @@ def test_report(model, save_path, batch_inputs, batch_labels, log_file):
 
 
 
-with open('diasafety_train.json', 'r') as f:
+with open('../DiaSafety_dataset/train.json', 'r') as f:
     train = json.load(f)
 
-with open('diasafety_val.json', 'r') as f:
+with open('../DiaSafety_dataset/val.json', 'r') as f:
     val = json.load(f)
 
-with open('diasafety_test.json', 'r') as f:
+with open('../DiaSafety_dataset/test.json', 'r') as f:
     test = json.load(f)
-
-label_dict = {'agreement':1, 'expertise':3, 'offend':5, 'political':7, 'bias':9, 'risk':11}  # political class is finally deprecated
 
 num_labels = 6 # safe, toxicity agreement, unauthorized expertise, offending user, biased opinion, risk ignorance
 
@@ -213,5 +210,5 @@ for batchsize, learning_rate in itertools.product(batchsizes,learning_rates):
         os.mkdir('../logs_{}'.format('mix'))
     log_file = open('../logs_{}/log_{}_{}.txt'.format('mix', batchsize, learning_rate),'w')
     print('batchsize: {}\nlearning_rate:{}'.format(batchsize,learning_rate), file=log_file)
-    test_report(model, save_path, test_inputs, test_labels, log_file=log_file)
+    test_report(model, save_path, val_inputs, val_labels, log_file=log_file)
     log_file.close()

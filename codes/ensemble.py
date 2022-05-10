@@ -12,20 +12,17 @@ import argparse
 import torch.nn as nn
 import random
 
-def get_loader(dataset, tokenizer, batchsize=16, padsize=256, want_label=1):
+def get_loader(dataset, tokenizer, batchsize=16, padsize=256, want_cate="Risk Ignorance"):
     
     batch_inputs, batch_labels = [], []
     
-    inputs1, inputs2, labels_ = [d['context'] for d in dataset], [d['response'] for d in dataset], [d['label'] for d in dataset]
+    inputs1, inputs2, categories, labels_ = [d['context'] for d in dataset], [d['response'] for d in dataset], [d['category'] for d in dataset], [d['label'] for d in dataset]
     labels = []
-    for label in labels_:
-        if label==want_label:
-            labels.append(1)
-        elif label==want_label-1:
-            labels.append(0)
+    for category, label in zip(categories, labels_):
+        if category==want_cate:
+            labels.append(int(label=='Unsafe'))
         else:
             labels.append(2)
-        #labels.append(int(label==want_label))
     for start in tqdm(range(0, len(inputs1), batchsize)):
         tmp_batch = tokenizer(text=inputs1[start:min(start + batchsize, len(inputs1))],
                               text_pair=inputs2[start:min(start + batchsize, len(inputs1))],
@@ -35,25 +32,23 @@ def get_loader(dataset, tokenizer, batchsize=16, padsize=256, want_label=1):
         batch_labels.append(tmp_label)
     return batch_inputs, batch_labels
 
-def get_loader_resp(dataset, tokenizer, batchsize=16, padsize=256, want_label=1):
+def get_loader_resp(dataset, tokenizer, batchsize=16, padsize=256, want_cate="Risk Ignorance"):
     batch_inputs, batch_labels = [], []
-    inputs1, inputs2, labels_ = [d['context'] for d in dataset], [d['response'] for d in dataset], [d['label'] for d in dataset]
+    inputs1, inputs2, categories, labels_ = [d['context'] for d in dataset], [d['response'] for d in dataset], [d['category'] for d in dataset], [d['label'] for d in dataset]
     labels = []
-    for label in labels_:
-        if label==want_label:
-            labels.append(1)
-        elif label==want_label-1:
-            labels.append(0)
+    for category, label in zip(categories, labels_):
+        if category==want_cate:
+            labels.append(int(label=='Unsafe'))
         else:
             labels.append(2)
-        #labels.append(int(label==want_label))
     for start in tqdm(range(0, len(inputs2), batchsize)):
         tmp_batch = tokenizer(text=inputs2[start:min(start + batchsize, len(inputs2))],
                               return_tensors="pt", truncation=True, padding='max_length', max_length=padsize)
         batch_inputs.append(tmp_batch)
-        tmp_label = torch.LongTensor(labels[start:min(start + batchsize, len(inputs1))])
+        tmp_label = torch.LongTensor(labels[start:min(start + batchsize, len(inputs2))])
         batch_labels.append(tmp_label)
     return batch_inputs, batch_labels
+
 
 def predict(model, batch_inputs):
     model.eval()
@@ -67,9 +62,9 @@ def predict(model, batch_inputs):
             probs_all = np.concatenate((probs_all, prob),axis=0)
     return probs_all
 
-label_dict = {'agreement':1, 'expertise':3, 'offend':5, 'bias':9, 'risk':11} # political class is deprecated
-with open('diasafety_test.json', 'r') as f:
+with open('../DiaSafety_dataset/test.json', 'r') as f:
     test = json.load(f)
+
 import pandas as pd
 df = pd.DataFrame.from_dict(test)
 batchsize = 256
@@ -87,17 +82,20 @@ save_path_dict = {
             'bias':'models_bias/model'
         }
 
+label_dict = {'agreement':"Toxicity Agreement", 'expertise':"Unauthorized Expertise", 'offend':"Offending User", 
+'political':"Sensitive Topics", 'bias':"Biased Opinion", 'risk':"Risk Ignorance"} # political class is finally deprecated
+
 model = RobertaForSequenceClassification.from_pretrained(path, num_labels=num_labels)
 tokenizer = RobertaTokenizer.from_pretrained(path)
 for dataset in label_dict: 
     print(dataset)
-    want_label = label_dict[dataset]
+    want_cate = label_dict[dataset]
     save_path = save_path_dict[dataset]
     model.load_state_dict(torch.load(save_path))
     model = model.to(device)
 
     print("getting loader...")
-    test_inputs, test_labels= get_loader(test, tokenizer, batchsize=batchsize, padsize=padsize,want_label=want_label)
+    test_inputs, test_labels= get_loader(test, tokenizer, batchsize=batchsize, padsize=padsize,want_cate=want_cate)
 
     print("start to predict...")
     probs = predict(model, test_inputs)
